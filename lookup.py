@@ -8,6 +8,7 @@ import requests
 import sys
 from dns import resolver, reversename
 import pygeoip
+import xlwt
 
 csvfilename = "malware.csv"
 
@@ -33,7 +34,7 @@ def readcsv(csvfilename):
                 malwarelist.append(row[2])
         except IndexError:
             #skip null lines and index errs
-                pass
+            pass
         finally:
             f.close()
             return malwarelist
@@ -49,8 +50,11 @@ def lookup(ip, malwarelist):
 
     addr=reversename.from_address(ip)
     responses = []
-    for response in resolver.query(addr, "PTR"):
-        responses.append(str(response))
+    try:
+        for response in resolver.query(addr, "PTR"):
+            responses.append(str(response))
+    except Exception:
+        pass
 
     if ip in malwarelist:
         return '\n '.join(responses), "True"
@@ -82,9 +86,24 @@ def plotIPs(iplist):
         kmlPts = kmlPts + retKML(ip)
     return kmlPts
 
+def writekml(iplistwithnullsremoved):
+
+    kmlheader = '<?xml version="1.0" encoding="UTF-8"?>\
+    \n<kml xmlns="http://www.opengis.net/kml/2.2">\n<Document>\n'
+    kmlfooter = '</Document>\n</kml>\n'
+
+
+    kmldoc=kmlheader+plotIPs(iplistwithnullsremoved)+kmlfooter
+
+    f = open('plot.kml', 'w')
+    f.write(kmldoc)
+    f.close()
+
+
 if __name__ == "__main__":
 
     c=Client()
+    gi = pygeoip.GeoIP('GeoIP.dat/GeoLiteCity.dat')
 
     #check for file and age, download if appropriate
 
@@ -111,29 +130,32 @@ if __name__ == "__main__":
 
     iplistwithnullsremoved = [x for x in iplist if x]
 
-    ofile = open('results.csv', "wb")
-    writer = csv.writer(ofile, delimiter='\t', quotechar='"', quoting=csv.QUOTE_ALL)
+    writekml(iplistwithnullsremoved)
 
+    header = ["Ip Address", "Owner", "AS No", "NetPrefix", "Country", "Reverse DNS entries", "Found in Malware List"]
+    workbook = xlwt.Workbook(encoding = 'ascii')
+    worksheet = workbook.add_sheet('Ip Lookup results')
+    row = 0
+    column = 0
+    for head in header:
+        worksheet.write(row, column, head)
+        column += 1
+    row = 1
+    column = 0
     for entry in c.lookupmany(iplistwithnullsremoved):
         iplookup = lookup(entry.ip, malwarelist)
+        rowentry = [entry.ip, entry.owner, entry.asn, entry.prefix, entry.cc, iplookup[0],iplookup[1]]
+        for item in rowentry:
+            print row
+            print column
+            print item
+            worksheet.write(row, column, item)
+            column += 1
+        column = 0
+        row += 1
 
-        row = entry.ip + ", " + entry.owner + ", " + entry.asn + ", " + entry.prefix + ", " + entry.cc + ", " + \
-            iplookup[0] + ", " + iplookup[1]
-        writer.writerow(row)
-
-    ofile.close()
-
-
-
-    gi = pygeoip.GeoIP('GeoIP.dat/GeoLiteCity.dat')
-
-    kmlheader = '<?xml version="1.0" encoding="UTF-8"?>\
-    \n<kml xmlns="http://www.opengis.net/kml/2.2">\n<Document>\n'
-    kmlfooter = '</Document>\n</kml>\n'
+    workbook.save("Results.xls")
 
 
-    kmldoc=kmlheader+plotIPs(iplistwithnullsremoved)+kmlfooter
 
-    f = open('plot.kml','w')
-    f.write(kmldoc)
-    f.close()
+
