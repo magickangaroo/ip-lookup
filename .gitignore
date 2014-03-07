@@ -1,3 +1,7 @@
-ipsofconcern.txt
+GeoIP.dat/*
+plot.kml
 malware.csv
-.idea
+ipsofconcern.txt
+.idea/
+.DS_Store
+results.csv

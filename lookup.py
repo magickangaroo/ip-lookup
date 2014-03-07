@@ -1,14 +1,13 @@
 __author__ = 'adz'
-import dns.resolver
-import dns.query
-import dns.zone
-import dns.reversename
+
 from cymruwhois import Client
 import csv
 import datetime
 import os
 import requests
 import sys
+from dns import resolver, reversename
+import pygeoip
 
 csvfilename = "malware.csv"
 
@@ -47,10 +46,41 @@ def readtextfile(txtfilename):
 
 
 def lookup(ip, malwarelist):
+
+    addr=reversename.from_address(ip)
+    responses = []
+    for response in resolver.query(addr, "PTR"):
+        responses.append(str(response))
+
     if ip in malwarelist:
-        return "True"
+        return '\n '.join(responses), "True"
     else:
-        return "False"
+        return '\n '.join(responses), "False"
+
+def retKML(ip):
+    rec = gi.record_by_name(ip)
+    try:
+        longitude = rec['longitude']
+        latitude = rec['latitude']
+        kml = (
+               '<Placemark>\n'
+               '<name>%s</name>\n'
+               '<Point>\n'
+               '<coordinates>%6f,%6f</coordinates>\n'
+               '<extrude>2</extrude>\n'
+               '<altitudeMode>relativeToGround</altitudeMode>\n'
+               '</Point>\n'
+               '</Placemark>\n'
+               ) %(ip,longitude, latitude)
+        return kml
+    except:
+        return ''
+
+def plotIPs(iplist):
+    kmlPts = ''
+    for ip in iplist:
+        kmlPts = kmlPts + retKML(ip)
+    return kmlPts
 
 if __name__ == "__main__":
 
@@ -78,12 +108,32 @@ if __name__ == "__main__":
         sys.exit()
 
     iplist = readtextfile("ipsofconcern.txt")
-    
-    for entry in c.lookupmany(iplist):
-        print entry.ip + ", " + entry.owner + ", " +  entry.asn + ", " + entry.prefix + ", " + entry.cc + ", " + \
-              str(dns.reversename.from_address(entry.ip)) + lookup(entry.ip)
+
+    iplistwithnullsremoved = [x for x in iplist if x]
+
+    ofile = open('results.csv', "wb")
+    writer = csv.writer(ofile, delimiter='\t', quotechar='"', quoting=csv.QUOTE_ALL)
+
+    for entry in c.lookupmany(iplistwithnullsremoved):
+        iplookup = lookup(entry.ip, malwarelist)
+
+        row = entry.ip + ", " + entry.owner + ", " + entry.asn + ", " + entry.prefix + ", " + entry.cc + ", " + \
+            iplookup[0] + ", " + iplookup[1]
+        writer.writerow(row)
+
+    ofile.close()
 
 
 
+    gi = pygeoip.GeoIP('GeoIP.dat/GeoLiteCity.dat')
+
+    kmlheader = '<?xml version="1.0" encoding="UTF-8"?>\
+    \n<kml xmlns="http://www.opengis.net/kml/2.2">\n<Document>\n'
+    kmlfooter = '</Document>\n</kml>\n'
 
 
+    kmldoc=kmlheader+plotIPs(iplistwithnullsremoved)+kmlfooter
+
+    f = open('plot.kml','w')
+    f.write(kmldoc)
+    f.close()
